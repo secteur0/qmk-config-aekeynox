@@ -209,13 +209,16 @@ generate_keymap() {
     log_info "Copying keymap files to output directory..."
     rsync -a "$src/" "$output_dir"
 
-    # Flatten include paths (../shared/ -> same directory)
+    # Flatten include paths (../shared/ -> same directory).
+    # `-i.bak` is the only in-place form accepted by both GNU and BSD sed (macOS).
     log_info "Flattening include paths..."
-    sed -i 's|"../shared/|"|g' "$output_dir"/*.h "$output_dir"/*.c 2>/dev/null || true
+    sed -i.bak 's|"../shared/|"|g' "$output_dir"/*.h "$output_dir"/*.c 2>/dev/null || true
+    rm -f "$output_dir"/*.h.bak "$output_dir"/*.c.bak
 
     # Replace placeholder in config.h template file
     log_info "Set ${CYAN}$layout_name${NC} layout name in config.h template file..."
-    sed -i "s/ONEDEADKEY_PLACEHOLDER_LAYOUT/$layout_name/" "$output_dir/config.h"
+    sed -i.bak "s/ONEDEADKEY_PLACEHOLDER_LAYOUT/$layout_name/" "$output_dir/config.h"
+    rm -f "$output_dir/config.h.bak"
 
     log_success "Generated keymap in ${CYAN}$output_dir${NC}"
 }
