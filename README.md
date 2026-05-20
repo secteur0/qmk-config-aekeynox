@@ -19,9 +19,20 @@ uv tool install qmk
 pipx install qmk
 python3 -m pip install qmk
 
-# Setup - it clones the QMK firmware repository (~1.5 GB)
+# Setup - it clones the QMK firmware repository (~1.5 GB) into `$HOME/qmk_firmware`
 qmk setup
 ```
+
+Then check the value of `qmk config user.qmk_home`, it should return:
+
+```sh
+user.qmk_home=~/qmk_firmware
+```
+
+> **Note 1:** If you've already cloned the QMK firmware repository elsewhere in your system (not in the default `$HOME/qmk_firmware`),
+> you may set `qmk_home` to the path of your existing clone: `qmk config user.qmk_home="~/path/to/qmk_firmware"`
+
+> **Note 2:** If `qmk config` shows a literal `$HOME/...` instead of an expanded path, see [Setting `user.qmk_home`](#setting-userqmk_home) in the Reference section.
 
 ### 2. Configure QMK for your keyboard
 
@@ -38,13 +49,10 @@ Then configure it (replace `beekeeb/piantor` with your model):
 # set your config values
 qmk config user.keyboard=beekeeb/piantor
 qmk config user.keymap=default
-qmk config user.qmk_home=$HOME/qmk_firmware
 
 # check your config
 qmk config
 ```
-
-> **Warning:** for `user.qmk_home`, always use `$HOME` (not `~`). QMK stores the value literally and does not expand `~`, so `qmk config user.qmk_home=~/qmk_firmware` will break subsequent commands.
 
 ### 3. Clone this repository
 
@@ -59,35 +67,37 @@ Each keymap has an `options.h` file where you can configure host layout, hold-ta
 
 The defaults work out of the box — you can skip this step and come back later.
 
-### 5. Generate the keymap
+### 5. Generate the keymap and copy it to QMK
 
-The generator assembles a keymap from a source folder + shared headers, adapts it for your keyboard layout, and outputs the result in `./output/`.
+The generator assembles a keymap from a source folder + shared headers, adapts
+it to your keyboard's physical layout, and writes the result to
+`./output/<keyboard>/keymaps/<name>`. The `--copy` flag additionally drops the
+output into `$QMK_HOME/keyboards/<keyboard>/keymaps/<name>` so QMK can find it.
 
 ```bash
+./generator.sh -src ./selenium --copy
+```
+
+This uses `user.keyboard` and `user.keymap` from `qmk config` (set in Step 2)
+to pick the keyboard and auto-detect the physical layout.
+
+Other useful invocations:
+
+```bash
+# Generate only — preview the output without touching $QMK_HOME
 ./generator.sh -src ./selenium
+
+# Pick a keyboard explicitly (ignores user.keyboard)
+./generator.sh -src ./selenium -kb beekeeb/piantor --copy
+
+# Force a specific physical layout (skips auto-detection from -km)
+./generator.sh -src ./selenium -layout LAYOUT_split_3x6_3_ex2 --copy
+
+# Full flag list
+./generator.sh --help
 ```
 
-You can also specify the keyboard explicitly:
-
-```bash
-./generator.sh -src ./selenium -kb beekeeb/piantor
-```
-
-### 6. Copy to QMK
-
-Copy the generated keymap into your QMK firmware tree:
-
-```bash
-./generator.sh -src ./selenium --copy
-```
-
-Or do both in one step:
-
-```bash
-./generator.sh -src ./selenium --copy
-```
-
-### 7. Compile and flash
+### 6. Compile and flash
 
 ```bash
 # Compile the firmware
@@ -99,60 +109,32 @@ qmk flash -km selenium
 
 The keyboard enters flash mode differently depending on the board — check your keyboard's documentation (usually a reset button or a key combination).
 
-## Generator options
+## Reference
+
+### Setting `user.qmk_home`
+
+`qmk config` stores the value verbatim, then later expands a leading `~` but
+**not** `$HOME`. Whether a form works therefore depends on what your shell did
+with the value before `qmk` saw it.
+
+Works:
 
 ```bash
-./generator.sh -src <keymap_folder> [-kb <keyboard>] [-km <ref_keymap>] [-layout <LAYOUT>] [-name <name>] [--copy]
+qmk config user.qmk_home=$HOME/qmk_firmware       # shell expands $HOME → absolute path stored
+qmk config user.qmk_home="$HOME/qmk_firmware"     # same: double quotes still expand $HOME
+qmk config user.qmk_home="~/qmk_firmware"         # literal ~ stored; qmk expands it at read-time
+qmk config user.qmk_home=/home/you/qmk_firmware   # plain absolute path, no expansion needed
 ```
 
-| Flag               | Description                                                                          |
-| ------------------ | ------------------------------------------------------------------------------------ |
-| `-src <path>`      | Path to the keymap source folder (required)                                          |
-| `-kb <keyboard>`   | Keyboard model (default: from `qmk config`)                                          |
-| `-km <keymap>`     | Reference keymap for layout auto-detection (default: from `qmk config`)              |
-| `-layout <LAYOUT>` | Explicit LAYOUT macro (e.g. `LAYOUT_split_3x6_3_ex2`). Skips detection; `-km` unused |
-| `-name <name>`     | Name for the generated keymap (default: source folder name)                          |
-| `--copy`, `-cp`    | Copy output to `$QMK_HOME` after generating                                          |
-
-Use `-layout` when the keyboard exposes multiple physical variants (e.g. `crkbd/rev4_0` has both `LAYOUT_split_3x6_3` and `LAYOUT_split_3x6_3_ex2`) and the reference keymap doesn't use the one you want.
-
-## Formatting
-
-Keymap files can be formatted with [qmk-layout-fmt](https://github.com/OneDeadKey/qmk-layout-fmt):
+Breaks:
 
 ```bash
-qmk-layout-fmt arsenik/keymap.c
-qmk-layout-fmt selenium/keymap.c
+qmk config user.qmk_home='$HOME/qmk_firmware'     # single quotes: literal $HOME stored, nothing expands it
 ```
 
-## Tests
+After setting, run `qmk config` and verify the value resolves to an absolute path or starts with `~` — never a literal `$HOME`.
 
-Compile tests verify that every valid config option combination builds successfully.
-
-```bash
-# generator.sh -layout flag plumbing (fast, no compile)
-bash tests/test_layout_flag.sh
-
-# Per-option tests (~2 min)
-bash tests/test_per_option.sh
-
-# Exhaustive tests (~10 min)
-bash tests/test_exhaustive.sh
-
-# Filter by target
-bash tests/test_per_option.sh -target selenium
-```
-
-### Docker
-
-No QMK setup needed — the Docker image includes everything.
-
-```bash
-docker build -t qmk-1dk-test .
-docker run --rm qmk-1dk-test tests/run_all.sh
-```
-
-## Supported keyboards
+### Supported keyboards
 
 The keymaps use a `ONEDEADKEY_LAYOUT` macro that adapts automatically to different keyboard sizes and shapes. The following physical layouts are supported:
 
@@ -172,7 +154,7 @@ The keymaps use a `ONEDEADKEY_LAYOUT` macro that adapts automatically to differe
 
 If your keyboard is not listed, you can add its layout to `shared/layouts.h` or [open an issue](https://github.com/OneDeadKey/qmk-config-aekeynox/issues) for help.
 
-### Lily58 (58 keys, 5 rows + 4 thumbs per side)
+#### Lily58 (58 keys, 5 rows + 4 thumbs per side)
 
 Lily58 has **4 keys beyond** the 42-key Selenium/Arsenik spec: 1 inner-corner key per side (below the home row) and 1 extra outermost thumb per side. They default to `KC_NO` (inert). Override in your keymap's `options.h`:
 
@@ -185,7 +167,7 @@ Lily58 has **4 keys beyond** the 42-key Selenium/Arsenik spec: 1 inner-corner ke
 
 **Selenium caveat:** Selenium is a 42-key spec, so logical row 1 (the top row) is transparent on every layer. On Lily58 with Selenium, the physical number row emits nothing until you edit `selenium/keymap.c` row 1 locally. **Arsenik is unaffected** — its base layer uses the top row for numbers natively.
 
-### Sofle (60 keys, Lily58 + 1 extra outermost thumb per side)
+#### Sofle (60 keys, Lily58 + 1 extra outermost thumb per side)
 
 Sofle adds **2 more keys** to the Lily58 layout — an extra outermost thumb per side (matrix `[4,0]` left, `[9,0]` right). On most Sofle builds, that position is a rotary encoder press.
 
@@ -200,7 +182,7 @@ The same Selenium top-row caveat applies.
 
 **Note for `keebart/sofle_choc_pro` users:** that board exposes `LAYOUT_split_4x6_5` (a community layout name) rather than a Sofle-specific one. Auto-detection would produce `ONEDEADKEY_LAYOUT_split_4x6_5`, which is intentionally not matched (the community name has a different meaning on other keyboards). Generate with `-layout LAYOUT_sofle` to force the Sofle branch.
 
-### Inner-column extensions (`_ex2` layouts)
+#### Inner-column extensions (`_ex2` layouts)
 
 Boards like the Corne v4 expose an `_ex2` variant with **4 extra physical keys** — 2 per side, stacked as a short inner column on the top and middle rows. These keys are outside the Selenium/Arsenik spec, so they default to `KC_NO` (inert).
 
@@ -215,7 +197,35 @@ To bind them, add to your keymap's `options.h` before generating:
 
 The bound keycode is the same across all layers.
 
-## Structure
+### Generator options
+
+```bash
+./generator.sh -src <keymap_folder> [-kb <keyboard>] [-km <ref_keymap>] [-layout <LAYOUT>] [-name <name>] [--copy]
+```
+
+| Flag               | Description                                                                          |
+| ------------------ | ------------------------------------------------------------------------------------ |
+| `-src <path>`      | Path to the keymap source folder (required)                                          |
+| `-kb <keyboard>`   | Keyboard model (default: from `qmk config`)                                          |
+| `-km <keymap>`     | Reference keymap for layout auto-detection (default: from `qmk config`)              |
+| `-layout <LAYOUT>` | Explicit LAYOUT macro (e.g. `LAYOUT_split_3x6_3_ex2`). Skips detection; `-km` unused |
+| `-name <name>`     | Name for the generated keymap (default: source folder name)                          |
+| `--copy`, `-cp`    | Copy output to `$QMK_HOME` after generating                                          |
+
+Use `-layout` when the keyboard exposes multiple physical variants (e.g. `crkbd/rev4_0` has both `LAYOUT_split_3x6_3` and `LAYOUT_split_3x6_3_ex2`) and the reference keymap doesn't use the one you want.
+
+### Formatting
+
+Keymap files can be formatted with [qmk-layout-fmt](https://github.com/OneDeadKey/qmk-layout-fmt):
+
+```bash
+qmk-layout-fmt arsenik/keymap.c
+qmk-layout-fmt selenium/keymap.c
+```
+
+## Development
+
+### Structure
 
 ```
 arsenik/          keymap source files
@@ -224,4 +234,31 @@ shared/           common QMK headers (keycodes, layouts, host layout definitions
 tests/            compile tests and matrix files
 generator.sh      keymap assembler
 Dockerfile        self-contained test environment
+```
+
+### Tests
+
+Compile tests verify that every valid config option combination builds successfully.
+
+```bash
+# generator.sh -layout flag plumbing (fast, no compile)
+bash tests/test_layout_flag.sh
+
+# Per-option tests (~2 min)
+bash tests/test_per_option.sh
+
+# Exhaustive tests (~10 min)
+bash tests/test_exhaustive.sh
+
+# Filter by target
+bash tests/test_per_option.sh -target selenium
+```
+
+#### Docker
+
+No QMK setup needed — the Docker image includes everything.
+
+```bash
+docker build -t qmk-1dk-test .
+docker run --rm qmk-1dk-test tests/run_all.sh
 ```
