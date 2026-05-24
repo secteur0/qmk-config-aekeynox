@@ -168,7 +168,7 @@ bool process_record_user(uint16_t keycode, keyrecord_t *record) {
         case LTHUMB_HOME:
             if (record->event.pressed && (get_mods() & MOD_BIT(_ALT)) != 0) {
                 mhn_alt_held = true;
-            } else if(mnh_alt_held) {
+            } else if (mhn_alt_held) {
                 unregister_mods(MOD_BIT(_ALT));
                 mhn_alt_held = false;
             }
